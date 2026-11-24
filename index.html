@@ -1,0 +1,751 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fruit Legends 4D</title>
+
+<style>
+*{box-sizing:border-box}
+body{margin:0;overflow:hidden;background:#071426;color:white;font-family:Arial}
+canvas{display:block}
+#game{position:fixed;inset:0}
+.panel{
+ position:fixed;background:#07182bdc;
+ border:1px solid #65dfff55;border-radius:13px;
+ padding:14px;backdrop-filter:blur(12px);
+ box-shadow:0 5px 25px #0005
+}
+#stats{top:14px;left:14px;width:230px}
+#quest{top:14px;right:14px;width:220px}
+#bottom{bottom:14px;left:14px}
+#actions{bottom:14px;right:14px}
+#settings{
+ display:none;top:50%;left:50%;transform:translate(-50%,-50%);
+ width:min(330px,90vw);z-index:10
+}
+h2{color:#65e5ff;margin:0 0 10px}
+button,select{
+ background:#153c5c;color:white;border:1px solid #53c9e9;
+ border-radius:8px;padding:10px;margin:3px;cursor:pointer
+}
+button:hover{background:#276a94}
+.bar{height:9px;background:#263a50;border-radius:10px;margin:7px 0}
+.fill{height:100%;width:100%;border-radius:10px}
+#hp{background:#21e28a}
+#xp{background:#2a9fff}
+.small{font-size:12px;color:#c1d4e7;line-height:1.6}
+#crosshair{
+ position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+ pointer-events:none;font-size:23px;text-shadow:0 0 8px cyan
+}
+#message{
+ position:fixed;top:37%;left:50%;transform:translate(-50%,-50%);
+ font-size:25px;font-weight:bold;text-align:center;
+ color:#fff;text-shadow:0 0 20px #00cfff;
+ pointer-events:none;width:90%
+}
+#title{
+ position:fixed;top:10px;left:50%;transform:translateX(-50%);
+ color:#8ceaff;font-weight:bold;letter-spacing:4px;
+ text-shadow:0 0 15px cyan;pointer-events:none
+}
+#mobile{display:none}
+@media(max-width:650px){
+ #quest{display:none}
+ #stats{width:185px}
+ #bottom{font-size:11px}
+ #actions{right:5px;bottom:5px}
+}
+</style>
+</head>
+
+<body>
+<div id="game"></div>
+<div id="title">FRUIT LEGENDS · 4D</div>
+<div id="crosshair">+</div>
+<div id="message">WELCOME TO FRUIT LEGENDS</div>
+
+<div class="panel" id="stats">
+<h2>🍈 FRUIT LEGENDS</h2>
+<b id="level">LEVEL 1</b>
+<p class="small">HEALTH</p>
+<div class="bar"><div class="fill" id="hp"></div></div>
+<p class="small">EXPERIENCE</p>
+<div class="bar"><div class="fill" id="xp"></div></div>
+<p>⭐ XP: <span id="xptext">0</span></p>
+<p>💰 Coins: <span id="coins">0</span></p>
+<p>🍊 Fruit: <span id="fruit">FLAME</span></p>
+</div>
+
+<div class="panel" id="quest">
+<h3>📜 QUEST</h3>
+<b>Defeat the Bandits</b>
+<p class="small">Defeat 3 enemies on Starter Island.</p>
+<p id="progress">0 / 3 defeated</p>
+<p class="small">Reward: 100 coins + 50 XP</p>
+<hr>
+<p class="small">Find the glowing portal to discover another dimension.</p>
+</div>
+
+<div class="panel" id="bottom">
+<b>CONTROLS</b>
+<div class="small">
+WASD: Move · SHIFT: Run<br>
+SPACE: Jump · Mouse: Camera<br>
+LEFT CLICK: Sword · Q: Fruit power<br>
+E: Change dimension · F: Portal
+</div>
+</div>
+
+<div class="panel" id="actions">
+<button onclick="openSettings()">⚙ SETTINGS</button>
+<button onclick="toggleFullscreen()">⛶ FULLSCREEN</button>
+</div>
+
+<div class="panel" id="settings">
+<h2>GAME SETTINGS</h2>
+<p>Graphics quality</p>
+<select id="quality" onchange="qualityChange(this.value)">
+<option value="low">Low</option>
+<option value="medium" selected>Medium</option>
+<option value="high">High</option>
+<option value="ultra">Ultra</option>
+</select>
+<p>Mouse sensitivity</p>
+<input id="sensitivity" type="range" min="1" max="10" value="5">
+<p><button onclick="closeSettings()">BACK TO GAME</button></p>
+</div>
+
+<script type="importmap">
+{
+ "imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"
+ }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+// =====================================
+// FRUIT LEGENDS - GAME ENGINE
+// =====================================
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x83cbed);
+scene.fog = new THREE.Fog(0x83cbed,90,230);
+
+const camera = new THREE.PerspectiveCamera(
+ 70,innerWidth/innerHeight,.1,600
+);
+
+const renderer = new THREE.WebGLRenderer({
+ antialias:true
+});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.15;
+document.querySelector("#game").appendChild(renderer.domElement);
+
+// LIGHTING
+scene.add(new THREE.HemisphereLight(0xc5edff,0x354a36,2));
+
+const sun=new THREE.DirectionalLight(0xffffff,3);
+sun.position.set(40,70,30);
+sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);
+scene.add(sun);
+
+// MATERIALS
+const mat=(color,roughness=.8,metalness=0)=>
+ new THREE.MeshStandardMaterial({color,roughness,metalness});
+
+// OCEAN
+const ocean=new THREE.Mesh(
+ new THREE.PlaneGeometry(700,700,80,80),
+ new THREE.MeshStandardMaterial({
+  color:0x057db9,roughness:.3,metalness:.15
+ })
+);
+ocean.rotation.x=-Math.PI/2;
+ocean.position.y=-1;
+scene.add(ocean);
+
+// ISLAND
+const island=new THREE.Mesh(
+ new THREE.CylinderGeometry(39,45,7,64),
+ mat(0xd8bc80)
+);
+island.position.y=0;
+island.receiveShadow=true;
+scene.add(island);
+
+const grass=new THREE.Mesh(
+ new THREE.CylinderGeometry(37,37,1.2,64),
+ mat(0x599d42)
+);
+grass.position.y=3.6;
+grass.receiveShadow=true;
+scene.add(grass);
+
+// DECORATIONS
+const trees=[];
+function makeTree(x,z){
+ const group=new THREE.Group();
+
+ const trunk=new THREE.Mesh(
+  new THREE.CylinderGeometry(.35,.55,4,10),
+  mat(0x82502c)
+ );
+ trunk.position.y=2;
+
+ const crown=new THREE.Mesh(
+  new THREE.SphereGeometry(2.4,14,12),
+  mat(0x237d3a)
+ );
+ crown.position.y=5;
+
+ group.add(trunk,crown);
+ group.position.set(x,4,z);
+ group.traverse(o=>{
+  if(o.isMesh)o.castShadow=true;
+ });
+ scene.add(group);
+ trees.push(group);
+}
+
+for(let i=0;i<35;i++){
+ const a=Math.random()*Math.PI*2;
+ const r=20+Math.random()*13;
+ makeTree(Math.cos(a)*r,Math.sin(a)*r);
+}
+
+// BUILDINGS
+function makeHouse(x,z){
+ const g=new THREE.Group();
+
+ const base=new THREE.Mesh(
+  new THREE.BoxGeometry(9,7,8),
+  mat(0xd5b78b)
+ );
+ base.position.y=3.5;
+
+ const roof=new THREE.Mesh(
+  new THREE.ConeGeometry(7,4,4),
+  mat(0x9d4938)
+ );
+ roof.position.y=9;
+ roof.rotation.y=Math.PI/4;
+
+ g.add(base,roof);
+ g.position.set(x,4,z);
+ g.traverse(o=>{if(o.isMesh)o.castShadow=true});
+ scene.add(g);
+}
+makeHouse(-12,-13);
+makeHouse(14,-15);
+
+// PLAYER
+const player=new THREE.Group();
+
+const body=new THREE.Mesh(
+ new THREE.CapsuleGeometry(.55,1.1,5,12),
+ mat(0x2779ee)
+);
+body.position.y=1.5;
+body.castShadow=true;
+
+const head=new THREE.Mesh(
+ new THREE.SphereGeometry(.43,20,16),
+ mat(0xf1c39e)
+);
+head.position.y=2.65;
+head.castShadow=true;
+
+const hair=new THREE.Mesh(
+ new THREE.SphereGeometry(.46,16,10,0,Math.PI*2,0,Math.PI*.55),
+ mat(0x25202c)
+);
+hair.position.y=2.85;
+
+const sword=new THREE.Mesh(
+ new THREE.BoxGeometry(.13,1.7,.15),
+ mat(0xd6e9ff,.2,.8)
+);
+sword.position.set(.85,1.8,0);
+
+player.add(body,head,hair,sword);
+player.position.set(0,4,0);
+scene.add(player);
+
+// PORTAL
+const portal=new THREE.Group();
+const portalRing=new THREE.Mesh(
+ new THREE.TorusGeometry(3.2,.22,16,80),
+ new THREE.MeshBasicMaterial({color:0x00ddff})
+);
+portal.add(portalRing);
+
+const portalInner=new THREE.Mesh(
+ new THREE.CircleGeometry(3,48),
+ new THREE.MeshBasicMaterial({
+  color:0x3d00bb,transparent:true,opacity:.5,
+  side:THREE.DoubleSide
+ })
+);
+portal.add(portalInner);
+
+portal.position.set(0,7,-25);
+scene.add(portal);
+
+// PORTAL PARTICLES
+const portalParticles=[];
+for(let i=0;i<50;i++){
+ const p=new THREE.Mesh(
+  new THREE.SphereGeometry(.09,8,8),
+  new THREE.MeshBasicMaterial({color:0x65eaff})
+ );
+ p.userData={angle:Math.random()*Math.PI*2,r:3+Math.random()*2};
+ portal.add(p);
+ portalParticles.push(p);
+}
+
+// ENEMIES
+const enemies=[];
+function createEnemy(x,z){
+ const g=new THREE.Group();
+
+ const torso=new THREE.Mesh(
+  new THREE.CapsuleGeometry(.55,1,5,10),
+  mat(0xb13e3e)
+ );
+ torso.position.y=1.5;
+
+ const face=new THREE.Mesh(
+  new THREE.SphereGeometry(.4,14,12),
+  mat(0xe7b68e)
+ );
+ face.position.y=2.8;
+
+ const eye1=new THREE.Mesh(
+  new THREE.SphereGeometry(.055,8,8),
+  mat(0x111111)
+ );
+ eye1.position.set(-.15,2.85,.36);
+
+ const eye2=eye1.clone();
+ eye2.position.x=.15;
+
+ g.add(torso,face,eye1,eye2);
+ g.position.set(x,4,z);
+ g.userData={hp:100,alive:true,cooldown:0};
+ scene.add(g);
+ enemies.push(g);
+}
+createEnemy(10,5);
+createEnemy(-10,7);
+createEnemy(15,-6);
+createEnemy(-15,-5);
+createEnemy(4,-18);
+
+// GAME DATA
+let health=100;
+let xp=0,coins=0,level=1,kills=0;
+let yaw=0,pitch=.25;
+let jumping=false,vy=0;
+let swordCooldown=0,fruitCooldown=0;
+let dimension=0;
+let questDone=false;
+
+const keys={};
+
+// INPUT
+document.addEventListener("keydown",e=>{
+ keys[e.code]=true;
+ if(e.code==="Space")e.preventDefault();
+ if(e.code==="KeyQ")fruitAttack();
+ if(e.code==="KeyE")changeDimension();
+ if(e.code==="KeyF")usePortal();
+});
+document.addEventListener("keyup",e=>keys[e.code]=false);
+
+// MOUSE
+let locked=false;
+renderer.domElement.addEventListener("click",()=>{
+ renderer.domElement.requestPointerLock();
+});
+document.addEventListener("pointerlockchange",()=>{
+ locked=document.pointerLockElement===renderer.domElement;
+});
+document.addEventListener("mousemove",e=>{
+ if(!locked)return;
+ const sens=Number(document.querySelector("#sensitivity").value)*.001;
+ yaw-=e.movementX*sens;
+ pitch-=e.movementY*sens;
+ pitch=THREE.MathUtils.clamp(pitch,-.2,1);
+});
+
+// AUDIO
+let audio;
+function sound(freq=400,duration=.15){
+ try{
+  audio??=new AudioContext();
+  const osc=audio.createOscillator();
+  const gain=audio.createGain();
+  osc.frequency.value=freq;
+  gain.gain.setValueAtTime(.07,audio.currentTime);
+  gain.gain.exponentialRampToValueAtTime(
+   .001,audio.currentTime+duration
+  );
+  osc.connect(gain);
+  gain.connect(audio.destination);
+  osc.start();
+  osc.stop(audio.currentTime+duration);
+ }catch(e){}
+}
+
+// HUD
+function updateHUD(){
+ document.querySelector("#hp").style.width=health+"%";
+ document.querySelector("#xp").style.width=
+  (xp/(level*100)*100)+"%";
+ document.querySelector("#level").textContent="LEVEL "+level;
+ document.querySelector("#xptext").textContent=xp;
+ document.querySelector("#coins").textContent=coins;
+ document.querySelector("#progress").textContent=
+  Math.min(kills,3)+" / 3 defeated";
+
+ while(xp>=level*100){
+  xp-=level*100;
+  level++;
+  health=100;
+  message("LEVEL UP! LEVEL "+level);
+ }
+}
+
+// MESSAGE
+let messageTimer;
+function message(t){
+ const el=document.querySelector("#message");
+ el.textContent=t;
+ clearTimeout(messageTimer);
+ messageTimer=setTimeout(()=>el.textContent="",2200);
+}
+
+// DEFEAT ENEMY
+function defeat(e){
+ if(!e.userData.alive)return;
+ e.userData.alive=false;
+ scene.remove(e);
+ kills++;
+ xp+=25;
+ coins+=20;
+
+ if(kills>=3&&!questDone){
+  questDone=true;
+  xp+=50;
+  coins+=100;
+  message("QUEST COMPLETE! +100 COINS");
+ }
+ updateHUD();
+}
+
+// SWORD ATTACK
+function swordAttack(){
+ if(swordCooldown>0)return;
+ swordCooldown=.55;
+ sound(170,.13);
+
+ sword.rotation.z=-1.2;
+ setTimeout(()=>sword.rotation.z=0,180);
+
+ for(const e of enemies){
+  if(!e.userData.alive)continue;
+  if(player.position.distanceTo(e.position)<5){
+   e.userData.hp-=40;
+   if(e.userData.hp<=0)defeat(e);
+  }
+ }
+}
+
+// PARTICLE EFFECT
+function burst(position,color=0xff7529){
+ const group=new THREE.Group();
+ for(let i=0;i<18;i++){
+  const p=new THREE.Mesh(
+   new THREE.SphereGeometry(.12,7,7),
+   new THREE.MeshBasicMaterial({color})
+  );
+  p.userData.velocity=new THREE.Vector3(
+   (Math.random()-.5)*.2,
+   Math.random()*.18,
+   (Math.random()-.5)*.2
+  );
+  group.add(p);
+ }
+ group.position.copy(position);
+ scene.add(group);
+
+ const timer=setInterval(()=>{
+  group.children.forEach(p=>{
+   p.position.add(p.userData.velocity);
+   p.userData.velocity.y-=.005;
+  });
+ },16);
+ setTimeout(()=>{
+  clearInterval(timer);
+  scene.remove(group);
+ },700);
+}
+
+// FLAME FRUIT
+function fruitAttack(){
+ if(fruitCooldown>0)return;
+ fruitCooldown=4;
+ sound(600,.3);
+
+ const ball=new THREE.Mesh(
+  new THREE.SphereGeometry(.8,20,20),
+  new THREE.MeshBasicMaterial({
+   color:dimension?0xb45aff:0xff7628
+  })
+ );
+ ball.position.copy(player.position);
+ ball.position.y+=2;
+ scene.add(ball);
+
+ const direction=new THREE.Vector3(
+  -Math.sin(yaw),0,-Math.cos(yaw)
+ );
+ let distance=0;
+
+ const timer=setInterval(()=>{
+  ball.position.addScaledVector(direction,1);
+  ball.scale.multiplyScalar(1.015);
+  distance++;
+
+  for(const e of enemies){
+   if(e.userData.alive&&ball.position.distanceTo(
+    new THREE.Vector3(e.position.x,e.position.y+2,e.position.z)
+   )<3){
+    e.userData.hp-=80;
+    burst(ball.position,dimension?0xa45cff:0xff7628);
+    if(e.userData.hp<=0)defeat(e);
+    clearInterval(timer);
+    scene.remove(ball);
+    return;
+   }
+  }
+
+  if(distance>35){
+   burst(ball.position,0xffa13b);
+   scene.remove(ball);
+   clearInterval(timer);
+  }
+ },16);
+}
+
+// DIMENSION SHIFT
+function changeDimension(){
+ dimension=1-dimension;
+ if(dimension){
+  scene.background=new THREE.Color(0x160b3d);
+  scene.fog=new THREE.Fog(0x160b3d,60,180);
+  ocean.material.color.set(0x35106c);
+  grass.material.color.set(0x49308d);
+  portalRing.material.color.set(0xff43fa);
+  sun.color.set(0x9b80ff);
+  document.querySelector("#fruit").textContent="VOID FLAME";
+  message("DIMENSION SHIFT ACTIVATED");
+ }else{
+  scene.background=new THREE.Color(0x83cbed);
+  scene.fog=new THREE.Fog(0x83cbed,90,230);
+  ocean.material.color.set(0x057db9);
+  grass.material.color.set(0x599d42);
+  portalRing.material.color.set(0x00ddff);
+  sun.color.set(0xffffff);
+  document.querySelector("#fruit").textContent="FLAME";
+  message("NORMAL DIMENSION");
+ }
+ sound(750,.5);
+}
+
+// PORTAL
+function usePortal(){
+ if(player.position.distanceTo(portal.position)<8){
+  player.position.set(
+   dimension?0:15,4,dimension?-5:15
+  );
+  message("DIMENSION PORTAL USED!");
+  burst(player.position,0x64eaff);
+ }else{
+  message("GET CLOSER TO THE PORTAL");
+ }
+}
+
+// MOUSE ATTACK
+document.addEventListener("mousedown",e=>{
+ if(e.button===0&&locked)swordAttack();
+});
+
+// ANIMATION
+const clock=new THREE.Clock();
+
+function animate(){
+ requestAnimationFrame(animate);
+ const dt=Math.min(clock.getDelta(),.04);
+ const time=clock.elapsedTime;
+
+ swordCooldown=Math.max(0,swordCooldown-dt);
+ fruitCooldown=Math.max(0,fruitCooldown-dt);
+
+ // MOVEMENT
+ const forward=new THREE.Vector3(
+  -Math.sin(yaw),0,-Math.cos(yaw)
+ );
+ const right=new THREE.Vector3(
+  Math.cos(yaw),0,-Math.sin(yaw)
+ );
+ const move=new THREE.Vector3();
+
+ if(keys.KeyW)move.add(forward);
+ if(keys.KeyS)move.sub(forward);
+ if(keys.KeyD)move.add(right);
+ if(keys.KeyA)move.sub(right);
+
+ if(move.lengthSq()>0){
+  move.normalize();
+  player.position.addScaledVector(
+   move,(keys.ShiftLeft?11:7)*dt
+  );
+  player.rotation.y=Math.atan2(-move.x,-move.z);
+ }
+
+ // JUMP
+ if(keys.Space&&!jumping){
+  jumping=true;
+  vy=11;
+ }
+ if(jumping){
+  vy-=25*dt;
+  player.position.y+=vy*dt;
+  if(player.position.y<=4){
+   player.position.y=4;
+   jumping=false;
+   vy=0;
+  }
+ }
+
+ // ISLAND LIMIT
+ const r=Math.hypot(player.position.x,player.position.z);
+ if(r>34){
+  player.position.x*=34/r;
+  player.position.z*=34/r;
+ }
+
+ // ENEMY AI
+ for(const e of enemies){
+  if(!e.userData.alive)continue;
+  const diff=new THREE.Vector3().subVectors(
+   player.position,e.position
+  );
+  const d=diff.length();
+
+  if(d<17&&d>2.5){
+   diff.normalize();
+   e.position.addScaledVector(diff,2.4*dt);
+   e.rotation.y=Math.atan2(-diff.x,-diff.z);
+  }
+
+  if(d<3){
+   e.userData.cooldown+=dt;
+   if(e.userData.cooldown>1.4){
+    health=Math.max(0,health-8);
+    e.userData.cooldown=0;
+    updateHUD();
+
+    if(health<=0){
+     health=100;
+     coins=Math.max(0,coins-10);
+     player.position.set(0,4,0);
+     message("DEFEATED! -10 COINS");
+     updateHUD();
+    }
+   }
+  }
+ }
+
+ // PORTAL ANIMATION
+ portalRing.rotation.z=time*.5;
+ portalInner.rotation.z=-time*.3;
+ portalParticles.forEach(p=>{
+  const a=p.userData.angle+time*.7;
+  p.position.set(
+   Math.cos(a)*p.userData.r,
+   Math.sin(a)*p.userData.r,
+   .1
+  );
+ });
+
+ // WATER
+ ocean.position.y=-1+Math.sin(time)*.06;
+
+ // CAMERA
+ const dist=9;
+ const offset=new THREE.Vector3(
+  Math.sin(yaw)*Math.cos(pitch)*dist,
+  3+Math.sin(pitch)*dist,
+  Math.cos(yaw)*Math.cos(pitch)*dist
+ );
+ camera.position.copy(player.position).add(offset);
+ camera.lookAt(
+  player.position.x,player.position.y+1.6,
+  player.position.z
+ );
+
+ renderer.render(scene,camera);
+}
+
+updateHUD();
+animate();
+
+// SETTINGS
+window.openSettings=()=>{
+ document.querySelector("#settings").style.display="block";
+ if(locked)document.exitPointerLock();
+};
+window.closeSettings=()=>{
+ document.querySelector("#settings").style.display="none";
+};
+window.toggleFullscreen=()=>{
+ if(!document.fullscreenElement)
+  document.documentElement.requestFullscreen?.();
+ else document.exitFullscreen?.();
+};
+
+window.qualityChange=value=>{
+ const settings={
+  low:{pixel:1,shadows:false},
+  medium:{pixel:1.5,shadows:true},
+  high:{pixel:2,shadows:true},
+  ultra:{pixel:2,shadows:true}
+ };
+ const s=settings[value];
+ renderer.setPixelRatio(Math.min(devicePixelRatio,s.pixel));
+ renderer.shadowMap.enabled=s.shadows;
+ sun.castShadow=s.shadows;
+};
+
+window.addEventListener("resize",()=>{
+ camera.aspect=innerWidth/innerHeight;
+ camera.updateProjectionMatrix();
+ renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+</body>
+</html>
